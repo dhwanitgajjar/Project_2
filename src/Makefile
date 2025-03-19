@@ -1,39 +1,33 @@
-# Commands and settings
+#!/bin/bash
 JAVAC = javac
-JAVA  = java
-SHELL = /bin/bash
+JAVA = java
+CLASSPATH = .
 
-# Java source files
-SOURCES = Log.java LogServer.java CheckLog.java
-CLASSES = $(SOURCES:.java=.class)
+all: Log.class LogServer.class CheckLog.class log logserver checklog
 
-.PHONY: all clean scripts
+Log.class: Log.java
+	$(JAVAC) Log.java
 
-# Default target: compile classes and create executable scripts.
-all: $(CLASSES) scripts
+LogServer.class: LogServer.java
+	$(JAVAC) LogServer.java
 
-# Compile each Java file into a class file.
-%.class: %.java
-	$(JAVAC) $<
+CheckLog.class: CheckLog.java
+	$(JAVAC) CheckLog.java
 
-# Create the shell scripts that run the respective Java classes.
-scripts: log logserver checklog
+log: Log.class
+	echo '#!/bin/bash' > log
+	echo 'CLASSPATH=$(CLASSPATH) $(JAVA) Log "$$@"' >> log
+	chmod u+x log
 
-log:
-	@echo "#!/bin/bash" > log
-	@echo "$(JAVA) Log \"\$$@\"" >> log
-	@chmod u+x log
+logserver: LogServer.class
+	echo '#!/bin/bash' > logserver
+	echo 'CLASSPATH=$(CLASSPATH) $(JAVA) LogServer "$$@"' >> logserver
+	chmod u+x logserver
 
-logserver:
-	@echo "#!/bin/bash" > logserver
-	@echo "$(JAVA) LogServer \"\$$@\"" >> logserver
-	@chmod u+x logserver
+checklog: CheckLog.class
+	echo '#!/bin/bash' > checklog
+	echo 'CLASSPATH=$(CLASSPATH) $(JAVA) CheckLog "$$@"' >> checklog
+	chmod u+x checklog
 
-checklog:
-	@echo "#!/bin/bash" > checklog
-	@echo "$(JAVA) CheckLog \"\$$@\"" >> checklog
-	@chmod u+x checklog
-
-# Clean up generated class files and scripts.
 clean:
-	rm -f $(CLASSES) log logserver checklog
+	rm -f *.class log logserver checklog log.txt loghead.txt

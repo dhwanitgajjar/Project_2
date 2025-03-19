@@ -1,60 +1,82 @@
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.security.*;
-import java.util.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 
 public class CheckLog {
     public static void main(String[] args) {
-        Path logPath = Paths.get("log.txt");
-        Path headPath = Paths.get("loghead.txt");
-        if (!Files.exists(logPath) || !Files.exists(headPath)) {
-            System.out.println("failed: log files missing");
+        if (args.length != 0) {
+            System.out.println("Usage: java LogValidator");
             System.exit(1);
         }
-        try {
-            List<String> lines = Files.readAllLines(logPath);
-            if (lines.isEmpty()) {
-                System.out.println("failed: empty log file");
+
+        File logFile = new File("log.txt");
+        File headerFile = new File("loghead.txt");
+
+        if (!logFile.exists()) {
+            System.out.println("error: log file missing");
+            System.exit(1);
+        }
+        if (!headerFile.exists()) {
+            System.out.println("error: header pointer file missing");
+            System.exit(1);
+        }
+
+        try (
+            BufferedReader logReader = new BufferedReader(new FileReader(logFile));
+            BufferedReader headerReader = new BufferedReader(new FileReader(headerFile))
+        ) {
+            String logLine;
+            String previousHash = "start";
+            int lineCount = 1;
+            String storedHash = headerReader.readLine();
+
+            while ((logLine = logReader.readLine()) != null) {
+                String[] components = logLine.split(" - ", 2);
+                if (components.length != 2) {
+                    System.out.println("error: malformed entry at line " + lineCount);
+                    System.exit(1);
+                }
+                String remainingContent = components[1];
+                int separatorIndex = remainingContent.indexOf(' ');
+                if (separatorIndex == -1) {
+                    System.out.println("error: malformed entry at line " + lineCount);
+                    System.exit(1);
+                }
+                String currentHash = remainingContent.substring(0, separatorIndex);
+
+                if (!currentHash.equals(previousHash)) {
+                    System.out.println("error: hash mismatch at line " + (lineCount - 1));
+                    System.exit(1);
+                }
+
+                previousHash = generateHash(logLine);
+                lineCount++;
+            }
+
+            if (!previousHash.equals(storedHash)) {
+                System.out.println("error: header hash mismatch");
                 System.exit(1);
             }
-            String expectedHash = "start";
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                String[] parts = line.split(" - ", 2);
-                if (parts.length < 2) {
-                    System.out.println("failed: invalid log format at line " + (i + 1));
-                    System.exit(1);
-                }
-                String currentHash = parts[1].split(" ")[0];
-                if (i == 0 && !currentHash.equals("start")) {
-                    System.out.println("failed: initial hash is not 'start'");
-                    System.exit(1);
-                } else if (i > 0 && !currentHash.equals(expectedHash)) {
-                    System.out.println("failed: hash mismatch at line " + i);
-                    System.exit(1);
-                }
-                expectedHash = computeHash(line);
-                if (i == lines.size() - 1) {
-                    String headHash = new String(Files.readAllBytes(headPath), StandardCharsets.UTF_8).trim();
-                    if (!expectedHash.equals(headHash)) {
-                        System.out.println("failed: head hash mismatch");
-                        System.exit(1);
-                    }
-                }
-            }
-            System.out.println("Valid!");
+
+            System.out.println("Log is valid");
             System.exit(0);
-        } catch (IOException | NoSuchAlgorithmException e) {
-            System.out.println("failed: " + e.getMessage());
+        } catch (IOException ex) {
+            System.out.println("error: problem reading files - " + ex.getMessage());
             System.exit(1);
         }
     }
 
-    private static String computeHash(String line) throws NoSuchAlgorithmException {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(line.getBytes(StandardCharsets.UTF_8));
-        String base64 = Base64.getEncoder().encodeToString(hash);
-        return base64.length() >= 24 ? base64.substring(base64.length() - 24) : base64;
+    private static String generateHash(String input) {
+        try {
+            MessageDigest sha256Digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashedData = sha256Digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            String encodedHash = Base64.getEncoder().encodeToString(hashedData);
+            return encodedHash.substring(encodedHash.length() - 24);
+        } catch (NoSuchAlgorithmException ex) {
+            System.err.println("SHA-256 algorithm unavailable: " + ex.getMessage());
+            return "";
+        }
     }
 }

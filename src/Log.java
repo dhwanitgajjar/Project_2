@@ -3,84 +3,84 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Base64;
 
 public class Log {
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.out.println("Usage: log <server_port> <message>");
-            System.exit(1);
+        if (args.length != 2) {
+            System.out.println("Usage: java Log <port> <message>");
+            return;
         }
+
+        String hostname = "localhost";
         int port = Integer.parseInt(args[0]);
-        String message = processMessage(args[1]);
-        String pow = findProofOfWork(message);
-        if (pow == null) {
-            System.out.println("error: could not find proof of work");
-            System.exit(1);
-        }
-        String fullMessage = pow + ":" + message;
-        try (Socket socket = new Socket("localhost", port);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
-            out.println(fullMessage);
+        String message = args[1];
+
+        try (
+            Socket socket = new Socket(hostname, port);
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        ) {
+        
+            String sanitizedMessage = message.replaceAll("\\s+", " ").trim();
+
+        
+            String pow = generateProofOfWork(sanitizedMessage);
+            String outmessage = pow + ": " + sanitizedMessage;
+
+            System.out.println("sending: " + outmessage);
+            out.println(outmessage);
+
+        
             String response = in.readLine();
-            System.out.println(response);
+            System.out.println("Server response: " + response);
         } catch (IOException e) {
-            System.out.println("error: connection failed");
+            System.err.println("Error communicating with server: " + e.getMessage());
         }
     }
 
-    private static String processMessage(String message) {
-        return message.replaceAll("\\s+", " ");
-    }
-
-    private static String findProofOfWork(String message) {
-        byte[] suffix = (":" + message).getBytes(StandardCharsets.UTF_8);
-        for (int length = 1; length <= 4; length++) {
-            String pow = findPowForLength(length, suffix);
-            if (pow != null) return pow;
-        }
-        return null;
-    }
-
-    private static String findPowForLength(int length, byte[] suffix) {
-        char[] chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
-        int[] indices = new int[length];
-        MessageDigest digest;
+    private static String generateProofOfWork(String message) {
+        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        StringBuilder pow = new StringBuilder();
         try {
-            digest = MessageDigest.getInstance("SHA-256");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            int attempts = 0;
+            while (true) {
+                attempts++;
+                String candidate = pow.toString() + ": " + message;
+                byte[] hash = digest.digest(candidate.getBytes(StandardCharsets.UTF_8));
+                if (hasLeadingZeros(hash, 22)) {
+                    return pow.toString();
+                }
+                
+                if (attempts % 100000 == 0) {
+                    pow.setLength(0);
+                    for (int i = 0; i < attempts / 100000; i++) {
+                        pow.append(characters.charAt(0));
+                    }
+                }
+                pow.append(characters.charAt((int) (Math.random() * characters.length())));
+                if (pow.length() > 10) {
+                    pow.setLength(0);
+                }
+            }
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            System.err.println("SHA-256 not available: " + e.getMessage());
+            return "";
         }
-        byte[] powBytes = new byte[length];
-        while (true) {
-            for (int i = 0; i < length; i++) {
-                powBytes[i] = (byte) chars[indices[i]];
-            }
-            digest.reset();
-            digest.update(powBytes);
-            digest.update(suffix);
-            byte[] hash = digest.digest();
-            if (isValidHash(hash)) {
-                return new String(powBytes, StandardCharsets.UTF_8);
-            }
-            if (!incrementIndices(indices, chars.length)) break;
-        }
-        return null;
     }
 
-    private static boolean incrementIndices(int[] indices, int max) {
-        int i = 0;
-        while (i < indices.length) {
-            indices[i]++;
-            if (indices[i] < max) return true;
-            indices[i] = 0;
-            i++;
+    private static boolean hasLeadingZeros(byte[] hash, int requiredZeros) {
+        int zeroBits = 0;
+        for (byte b : hash) {
+            if (b == 0) {
+                zeroBits += 8;
+            } else {
+                zeroBits += Integer.numberOfLeadingZeros(b & 0xFF) - 24;
+                break;
+            }
+            if (zeroBits >= requiredZeros) return true;
         }
-        return false;
-    }
-
-    private static boolean isValidHash(byte[] hash) {
-        return hash.length >= 3 && hash[0] == 0 && hash[1] == 0 && (hash[2] & 0xFF) <= 0x03;
+        return zeroBits >= requiredZeros;
     }
 }
